@@ -25,16 +25,9 @@ planned_on: datetime  # When you plan to do it
 tags: list[str]  # encompases priority as well as things like location, urgency, etc.
 ```
 
-# Habits & Recurring Todos
+## Habits & Recurring Todos & Tracking
 
-Habits are really just recurring todos. They go in projects. You add times you did them to the yaml frontmatter as a list item under `completions`
-
-```yaml
-completions:
-  - status: Done
-    completed_on: datetime
-    duration: 30m  # How long did you do it for in the case of things like workouts
-```
+Habits are really just recurring todos, and tracking is really just a habit with a numeric frontmatter you can query and aggregate. They go in projects but they get their own subfolder named the same as the todo. Then there is a root level file the same name as the folder with the recurring info and notes about the habit.
 
 recurring can be like
 
@@ -52,6 +45,12 @@ schedule:
     times: 3  # How many times per week?
 ```
 
+Then a new file is created per instance of completing the habit, called `YYYYMMDD.md`, with frontmatter containing details about tracked metrics, etc.
+
+## Keeping Todo folders clean
+
+Todo folders should contain an `Archive` folder and `Done` or `Wont Do` status notes should be moved into there.
+
 # TODO Memorizing
 
 Should write memorizables into [mdanki](https://github.com/ashlinchak/mdanki) compatible formatting.
@@ -61,10 +60,6 @@ Flashcards related to a markdown file `foobar.md` should be stored in `foobar.fl
 # TODO Journaling
 
 Journaling can be in its own folder in commonmark.
-
-# TODO Tracking
-
-## Tracking Numerics
 
 # TODO Hoarding
 
