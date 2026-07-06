@@ -321,7 +321,6 @@ A `pydantic-settings` `BaseSettings` model. Sources and precedence:
 
 ```python
 from pathlib import Path
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict, YamlConfigSettingsSource
 
 class PkmSettings(BaseSettings):
@@ -330,9 +329,7 @@ class PkmSettings(BaseSettings):
     embed_model: str = "BAAI/bge-small-en-v1.5"
     watch: bool = True
     cache_dir: Path = Path(".markdowndb")   # relative to vault root
-    rrf_k: int = 60
     search_limit: int = 10
-    otel_service_name: str = "pkm-mcp"
 
     @classmethod
     def settings_customise_sources(cls, settings_cls, init_settings,
@@ -353,9 +350,7 @@ settable field — it is always the git root, never overridden.
 embed_model: BAAI/bge-small-en-v1.5
 watch: true
 cache_dir: .markdowndb
-rrf_k: 60
 search_limit: 10
-otel_service_name: pkm-mcp
 ```
 
 Any field can be overridden by env, e.g. `PKM_WATCH=false`,
