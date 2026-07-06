@@ -14,11 +14,49 @@ Note taking isn't for collecting. It's for retrieval, and, better yet, memorizat
 
 PKM's need versioning too. You especially can't have an AI crawling around your stuff without it being reviewed and versioned.
 
+# Todos
+
+Todo's can be handled as one-md-file-per-todo in folders-as-projects with several standard frontmatter:
+
+```yaml
+status: enum  # Done, Wont-Do, In-Progress, Next, Backlog, etc
+deadline: datetime  # When you have to do it by
+planned_on: datetime  # When you plan to do it
+tags: list[str]  # encompases priority as well as things like location, urgency, etc.
+```
+
+# Habits & Recurring Todos
+
+Habits are really just recurring todos. They go in projects. You add times you did them to the yaml frontmatter as a list item under `completions`
+
+```yaml
+completions:
+  - status: Done
+    completed_on: datetime
+    duration: 30m  # How long did you do it for in the case of things like workouts
+```
+
+recurring can be like
+
+```yaml
+schedule:
+    frequency: weekly
+    skip: 0  # 1 would mean skip one week
+```
+
+or
+
+```yaml
+schedule:
+    frequency: weekly
+    times: 3  # How many times per week?
+```
+
 # TODO Memorizing
 
 Should write memorizables into [mdanki](https://github.com/ashlinchak/mdanki) compatible formatting.
 
-Flashcards related to a markdown file `foobar.md` should be stored in `foobar.flashcards.md`
+Flashcards related to a markdown file `foobar.md` should be stored in `foobar.flashcards.md`. The `foobar.md` gets a frontmatter item `flashcard_link` and the flashcard file gets a frontmatter item `original_link`. Still, these files should always stay named the same.
 
 # TODO Journaling
 
@@ -66,7 +104,7 @@ For all uploads:
 
 1. The raw file goes in `./assets` folder
 2. An `.md` file goes in `.` and has the same name as the raw file.
-3. The path of the asset goes in the frontmatter as "original" (not as a markdown link, markdown links are not supported in frontmatter)
+3. The path of the asset goes in the frontmatter as `original_link` (not as a markdown link, markdown links are not supported in frontmatter)
 4. The body of the `.md` file contains a header `# AI Generated` and then that becomes info about the original
 
 ## Images
