@@ -167,7 +167,11 @@ hits: list[SearchHit] = db.search_text("collectors fallacy", limit=10)
 hits = db.search_semantic("note-taking philosophy", k=10)
 hits = db.search("note-taking philosophy", limit=10)   # hybrid (RRF)
 
-# writes / reindex
+# MCP-facing mutators: write/remove file, reindex, AND auto-commit
+db.write("journal/2026-07-06.md", text)   # -> git commit (AI message)
+db.remove("old.md")                       # -> git commit
+
+# reindex only (no git) — used by the watchdog / external edits
 db.upsert("journal/2026-07-06.md")   # re-parse from disk
 db.delete("old.md")
 
@@ -300,18 +304,18 @@ file_hash and no-ops. Prevents double embedding work.
 
 ## Configuration
 
-Configuration lives in the **app layer** (`pkm`), not the `markdowndb` library.
-The library stays param-driven — `MarkdownDB(...)` takes explicit constructor
-args. `pkm/config.py` reads settings and constructs the library from them, so
-`markdowndb` remains reusable without any config framework.
+The **config framework** lives in the app layer (`pkm`) — `markdowndb` takes
+explicit constructor args and has no `pydantic-settings` dependency. `pkm/config.py`
+reads settings and constructs the library from them. (Git and litellm, by
+contrast, live *inside* `markdowndb` — see Git integration.)
 
 ### Discovery
 
 The vault is a git repository (per the PKM git-versioning requirement). The
-**vault root is the directory containing `.git`**, located at runtime with
-GitPython (`git.Repo(Path.cwd(), search_parent_directories=True).working_tree_dir`).
-Config is read from `<vault_root>/pkm.yaml`. If no git repo is found, config.py
-raises a clear error (the tool assumes a versioned vault).
+**vault root is the directory containing `.git`**, located at runtime by
+`markdowndb.find_vault_root(start)` (GitPython, walking up parents). `pkm/config.py`
+reuses it to locate `<vault_root>/pkm.yaml`. If no git repo is found, it raises a
+clear error (the tool assumes a versioned vault).
 
 ### Settings model (`pkm/config.py`)
 
@@ -330,6 +334,7 @@ class PkmSettings(BaseSettings):
     watch: bool = True
     cache_dir: Path = Path(".markdowndb")   # relative to vault root
     search_limit: int = 10
+    commit_model: str = "openrouter/free"   # litellm model id; needs OPENROUTER_API_KEY
 
     @classmethod
     def settings_customise_sources(cls, settings_cls, init_settings,
@@ -351,10 +356,69 @@ embed_model: BAAI/bge-small-en-v1.5
 watch: true
 cache_dir: .markdowndb
 search_limit: 10
+commit_model: openrouter/free
 ```
 
 Any field can be overridden by env, e.g. `PKM_WATCH=false`,
 `PKM_EMBED_MODEL=BAAI/bge-base-en-v1.5`.
+
+## Git integration & auto-commit
+
+Git lives **inside the `markdowndb` library**, centralized in
+`markdowndb/vault_git.py` around a single `git.Repo` (GitPython). Two uses:
+
+- **Vault-root discovery** — `find_vault_root(start)` walks up to the directory
+  containing `.git`. Exposed so the `pkm` app reuses it to locate `pkm.yaml`.
+- **Auto-commit** after MCP-originated writes.
+
+### Reindex vs commit
+
+The distinction is which method you call, not a flag:
+
+- `db.upsert(path)` / `db.delete(path)` — **reindex only, no git**. Used by the
+  watchdog and internally.
+- `db.write(path, text)` / `db.remove(path)` — the **MCP-facing mutators**: write
+  (or remove) the file on disk, reindex, then commit the changed path. These are
+  the only methods that touch git.
+
+### Policy
+
+- Only MCP-originated mutations (`write`/`remove`) commit. Watchdog-detected
+  external edits go through `upsert`/`delete` and are **not** committed — the user
+  versions those.
+- Auto-commit is core behavior, not configurable (always on).
+- One commit per mutation, scoped to the changed file only
+  (`repo.index.add([path])`, remove for deletes). Never `git add -A`.
+
+### Message generation (litellm)
+
+- Stage the changed path, take the **staged diff**, ask litellm (`commit_model`)
+  for a one-line summary.
+- litellm failure/timeout → deterministic fallback (`update <path>`,
+  `add <path>`, `delete <path>`). The commit **always** happens; a message-gen
+  failure never blocks or drops the mutation.
+- API keys come from the environment (litellm provider vars, e.g.
+  `OPENROUTER_API_KEY`) — never in `pkm.yaml`.
+
+### Co-signing
+
+Author and committer are the user's normal git identity. The AI is credited with
+a trailer:
+
+```
+<subject line>
+
+Co-Authored-By: <commit_model> <noreply@pkm.local>
+```
+
+### Write path (MCP write/delete tool)
+
+`db.write(path, text)` (or `db.remove(path)`):
+
+1. Write (or remove) the file on disk.
+2. Reindex (the `upsert`/`delete` internals).
+3. Stage the path → staged diff → litellm message (or fallback) → append the
+   `Co-Authored-By` trailer → `repo.index.commit(...)`.
 
 ## Error handling
 
@@ -387,6 +451,8 @@ exporter. This keeps the library backend-agnostic and zero-overhead in tests.
   event before raising
 - `markdowndb.validate` — bulk validation pass (parent of the per-file `parse`
   spans + link checks); attrs `file_count`, `violation_count`
+- `markdowndb.commit` — auto-commit on `write`/`remove`; attrs `path`,
+  `fallback_used` (whether litellm failed and the deterministic message was used)
 
 ### Metrics
 
@@ -427,6 +493,10 @@ exporter for local dev. No hardcoded backend.
 - **Integration:** `upsert` changes body → new results; `delete` removes; rename
   reuses cached embedding.
 - **Integration:** watchdog fires `upsert` on external file write.
+- **Git (litellm mocked):** `db.write`/`db.remove` create one commit scoped to
+  the changed file, with the `Co-Authored-By: <commit_model>` trailer; litellm
+  failure → deterministic fallback message but the commit still lands; `db.upsert`
+  (watchdog path) creates **no** commit.
 - **Cache persistence:** two `MarkdownDB` instances across a restart skip
   re-embed (assert embed called 0 times).
 - Embeddings mocked in most tests (deterministic fake vectors); one real-model
@@ -435,8 +505,8 @@ exporter for local dev. No hardcoded backend.
 ## Dependencies
 
 - `markdowndb`: duckdb, pyyaml, fastembed, watchdog, pydantic, markdown-it-py,
-  opentelemetry-api
-- `pkm` (MCP server + config): + fastmcp, pydantic-settings, gitpython,
+  gitpython, litellm, opentelemetry-api
+- `pkm` (MCP server + config): + fastmcp, pydantic-settings,
   opentelemetry-sdk, opentelemetry-exporter-otlp
 
 ## Out of scope (YAGNI)
