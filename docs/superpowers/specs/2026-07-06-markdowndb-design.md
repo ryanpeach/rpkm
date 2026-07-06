@@ -16,8 +16,9 @@ library API (in-process) supporting four read patterns:
 
 plus a fused **hybrid search** over (3) and (4).
 
-It is not a general service — no HTTP, no CLI in MVP. Consumers are the MCP
-tool functions running in the same process.
+It is not a general service — no HTTP. Consumers are the MCP tool functions
+running in the same process. A `markdowndb lint` CLI is provided as a prek
+pre-commit hook for vault validation.
 
 ## Scope constraints
 
@@ -169,6 +170,13 @@ hits = db.search("note-taking philosophy", limit=10)   # hybrid (RRF)
 # writes / reindex
 db.upsert("journal/2026-07-06.md")   # re-parse from disk
 db.delete("old.md")
+
+# validation (bulk pre-flight; collects every violation)
+report: ValidationReport = db.validate()      # or db.validate(paths=[...])
+if not report.ok:
+    for v in report.violations:
+        print(f"{v.path}:{v.line} [{v.check}] {v.message}")
+
 db.close()
 ```
 
@@ -192,6 +200,68 @@ Anything beyond this set → `db.sql(...)`.
 **Reciprocal Rank Fusion (RRF)**: `score = sum(1 / (k + rank))`, `k = 60`.
 No score normalization needed; robust and standard.
 
+## Validation
+
+This is a code-first tool: every file **must** parse. There is no graceful
+"index it anyway" mode for parse failures. Validation is strict — any violation
+is an **error** (no configurable severity, no warn level).
+
+Two enforcement points:
+
+- **Runtime (`load`/`upsert`)** — parse checks (yaml, commonmark) are enforced
+  per file and raise `MarkdownParseError` (with `path` + `line`) on failure.
+  Fail fast; a malformed file is a bug to fix, not something to index partially.
+- **Pre-commit (`db.validate` + `markdowndb lint` CLI)** — validates a set of
+  files, collecting **every** violation across all three checks in one pass
+  instead of raising on the first. The library returns a `ValidationReport`; the
+  CLI wraps it for prek.
+
+### Checks
+
+1. **yaml** — the frontmatter block parses as YAML *and* is a mapping.
+2. **commonmark** — the body parses under a CommonMark-compliant parser
+   (`markdown-it-py`, `commonmark` preset) with no error.
+3. **links** — every Markdown inline/reference link `[text](target)` whose
+   `target` is a relative path (not `http(s):`/`mailto:`) resolves to an existing
+   file. Resolution is relative to the linking note's own directory, per
+   CommonMark — there is no vault-root-relative form. Wikilinks, heading anchors,
+   and external-URL liveness are out of scope.
+
+### Report model
+
+```python
+class Violation(BaseModel):
+    path: str
+    check: Literal["yaml", "commonmark", "links"]
+    message: str
+    line: int | None = None
+
+class ValidationReport(BaseModel):
+    violations: list[Violation]
+
+    @property
+    def ok(self) -> bool:
+        return not self.violations
+```
+
+All violations are errors; `report.ok` is `True` only when the list is empty.
+
+### CLI (prek hook)
+
+`markdowndb lint [PATHS...]` validates the given files (prek passes staged
+paths), prints one line per violation, and exits non-zero if any are found.
+Registered as a console script; wired in the vault repo's `.pre-commit-config.yaml`:
+
+```yaml
+- repo: local
+  hooks:
+    - id: markdowndb-lint
+      name: markdowndb lint
+      entry: markdowndb lint
+      language: system
+      types: [markdown]
+```
+
 ## Data flow
 
 ### Startup: `load()`
@@ -200,6 +270,8 @@ No score normalization needed; robust and standard.
 2. `ATTACH '.markdowndb/cache.duckdb' AS cache` (create if absent).
 3. Walk vault; for each `*.md`: read text, split frontmatter/body, parse YAML,
    `Frontmatter.model_validate(...)`, compute `body_hash`, `INSERT` note row.
+   Parse failures (yaml/commonmark) raise `MarkdownParseError` — the file must
+   be fixed (see Validation).
 4. Embeddings: `LEFT JOIN notes ↔ cache.embedding_cache` on
    `body_hash AND model`; embed misses via fastembed; `INSERT` new rows into
    cache; copy needed vectors into in-memory `embeddings` table.
@@ -228,13 +300,14 @@ file_hash and no-ops. Prevents double embedding work.
 
 ## Error handling
 
-- Malformed YAML → log warning, index note with empty `Frontmatter`; body still
-  searchable. Never crash the walk.
-- Frontmatter not a mapping (e.g. top-level list) → same: warn, empty
-  frontmatter.
-- Non-UTF8 / unreadable file → skip, warn, continue.
+- Malformed YAML → raise `MarkdownParseError` (path + line). Code-first: the
+  file is fixed, not indexed partially. See Validation.
+- Frontmatter not a mapping (e.g. top-level list) → same: raise.
+- Body fails CommonMark parse → raise `MarkdownParseError`.
+- Non-UTF8 / unreadable file → raise (cannot parse).
 - Embed model download/init failure → FTS + filter still work; semantic and
-  hybrid degrade to FTS-only with a logged warning.
+  hybrid degrade to FTS-only with a logged warning. (Operational degradation is
+  fine; parse failures are not.)
 - Cache model mismatch (embed model changed) → rows with the old `model` are
   ignored; content re-embedded under the new model id.
 - `db.sql()` → raw DuckDB errors propagate to the caller.
@@ -251,7 +324,11 @@ exporter. This keeps the library backend-agnostic and zero-overhead in tests.
 - `markdowndb.upsert` — attrs `path`, `file_changed`, `embedded`
 - `markdowndb.search` — attrs `mode` (text|semantic|hybrid), `query_len`, `result_count`
 - `markdowndb.embed` — attrs `batch_size`, `model` (the expensive span)
-- `markdowndb.parse` — records malformed-YAML exceptions as span events
+- `markdowndb.parse` — per-file yaml+commonmark parse (leaf span; fires under
+  both `load`/`upsert` and `validate`); records `MarkdownParseError` as a span
+  event before raising
+- `markdowndb.validate` — bulk validation pass (parent of the per-file `parse`
+  spans + link checks); attrs `file_count`, `violation_count`
 
 ### Metrics
 
@@ -262,8 +339,9 @@ exporter. This keeps the library backend-agnostic and zero-overhead in tests.
 
 ### Logs
 
-Bridge existing `logging` warnings (malformed YAML, degraded semantic) to OTEL
-logs via `LoggingHandler`, configured app-side.
+Bridge existing `logging` warnings (degraded semantic, cache model mismatch) to
+OTEL logs via `LoggingHandler`, configured app-side. Parse failures are raised as
+`MarkdownParseError`, not logged-and-swallowed.
 
 ### App wiring (MCP server, not the library)
 
@@ -276,8 +354,13 @@ exporter for local dev. No hardcoded backend.
 ## Testing (TDD, pytest)
 
 - **Unit:** frontmatter split + `Frontmatter.model_validate` (typed fields,
-  extra passthrough, malformed → empty); `body_hash` stability; cache
-  hit/miss logic.
+  extra passthrough); `body_hash` stability; cache hit/miss logic.
+- **Unit (validation):** malformed YAML / non-mapping frontmatter / bad
+  CommonMark → `MarkdownParseError` raised at `load`/`upsert`; `db.validate`
+  collects all violations without raising; link check resolves valid relative
+  links and flags broken / missing targets; external URLs and `mailto:` ignored.
+- **CLI:** `markdowndb lint` exits 0 on a clean file set, non-zero with printed
+  violations on a dirty one.
 - **Integration** (tmp vault fixture): `load` → `get`, `filter` (each lookup
   suffix), `search_text`, `search_semantic`, `search` (RRF).
 - **Integration:** `upsert` changes body → new results; `delete` removes; rename
@@ -290,12 +373,15 @@ exporter for local dev. No hardcoded backend.
 
 ## Dependencies
 
-- `markdowndb`: duckdb, pyyaml, fastembed, watchdog, pydantic, opentelemetry-api
+- `markdowndb`: duckdb, pyyaml, fastembed, watchdog, pydantic, markdown-it-py,
+  opentelemetry-api
 - `pkm` (MCP server): + fastmcp, opentelemetry-sdk, opentelemetry-exporter-otlp
 
 ## Out of scope (YAGNI)
 
-- HTTP/REST service, CLI.
+- HTTP/REST service. (A `markdowndb lint` CLI *is* in scope, for prek.)
+- Link validation beyond relative Markdown links: wikilinks, heading anchors,
+  and external-URL liveness are not checked.
 - Promoting `status`/`created`/`updated`/`title` to typed columns (kept in
   `extra`; promote later only if a query proves slow).
 - Hybrid score weighting/tuning knobs beyond RRF's fixed `k`.
