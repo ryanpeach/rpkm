@@ -298,6 +298,69 @@ Debounce by `(path, mtime, file_hash)`. An MCP write triggers an explicit `upser
 watchdog then fires for the same write; the second `upsert` sees an unchanged
 file_hash and no-ops. Prevents double embedding work.
 
+## Configuration
+
+Configuration lives in the **app layer** (`pkm`), not the `markdowndb` library.
+The library stays param-driven — `MarkdownDB(...)` takes explicit constructor
+args. `pkm/config.py` reads settings and constructs the library from them, so
+`markdowndb` remains reusable without any config framework.
+
+### Discovery
+
+The vault is a git repository (per the PKM git-versioning requirement). The
+**vault root is the directory containing `.git`**, located at runtime with
+GitPython (`git.Repo(Path.cwd(), search_parent_directories=True).working_tree_dir`).
+Config is read from `<vault_root>/pkm.yaml`. If no git repo is found, config.py
+raises a clear error (the tool assumes a versioned vault).
+
+### Settings model (`pkm/config.py`)
+
+A `pydantic-settings` `BaseSettings` model. Sources and precedence:
+
+**env (`PKM_` prefix) > `pkm.yaml` > field defaults.**
+
+```python
+from pathlib import Path
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict, YamlConfigSettingsSource
+
+class PkmSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="PKM_", extra="forbid")
+
+    embed_model: str = "BAAI/bge-small-en-v1.5"
+    watch: bool = True
+    cache_dir: Path = Path(".markdowndb")   # relative to vault root
+    rrf_k: int = 60
+    search_limit: int = 10
+    otel_service_name: str = "pkm-mcp"
+
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings,
+                                   env_settings, dotenv_settings, file_secret_settings):
+        # env wins over yaml; yaml over defaults
+        yaml = YamlConfigSettingsSource(settings_cls)   # yaml_file set at load time
+        return (init_settings, env_settings, yaml)
+```
+
+`config.py` computes the vault root, points the YAML source at
+`<vault_root>/pkm.yaml`, builds `PkmSettings`, and wires a `MarkdownDB`:
+`vault` is the git root itself; `cache_dir` resolves under it. `vault` is not a
+settable field — it is always the git root, never overridden.
+
+### Example `pkm.yaml`
+
+```yaml
+embed_model: BAAI/bge-small-en-v1.5
+watch: true
+cache_dir: .markdowndb
+rrf_k: 60
+search_limit: 10
+otel_service_name: pkm-mcp
+```
+
+Any field can be overridden by env, e.g. `PKM_WATCH=false`,
+`PKM_EMBED_MODEL=BAAI/bge-base-en-v1.5`.
+
 ## Error handling
 
 - Malformed YAML → raise `MarkdownParseError` (path + line). Code-first: the
@@ -361,6 +424,9 @@ exporter for local dev. No hardcoded backend.
   links and flags broken / missing targets; external URLs and `mailto:` ignored.
 - **CLI:** `markdowndb lint` exits 0 on a clean file set, non-zero with printed
   violations on a dirty one.
+- **Config:** `PkmSettings` loads defaults; `pkm.yaml` at the git root overrides
+  defaults; `PKM_*` env overrides `pkm.yaml`; vault root resolved via GitPython;
+  missing git repo raises a clear error.
 - **Integration** (tmp vault fixture): `load` → `get`, `filter` (each lookup
   suffix), `search_text`, `search_semantic`, `search` (RRF).
 - **Integration:** `upsert` changes body → new results; `delete` removes; rename
@@ -375,7 +441,8 @@ exporter for local dev. No hardcoded backend.
 
 - `markdowndb`: duckdb, pyyaml, fastembed, watchdog, pydantic, markdown-it-py,
   opentelemetry-api
-- `pkm` (MCP server): + fastmcp, opentelemetry-sdk, opentelemetry-exporter-otlp
+- `pkm` (MCP server + config): + fastmcp, pydantic-settings, gitpython,
+  opentelemetry-sdk, opentelemetry-exporter-otlp
 
 ## Out of scope (YAGNI)
 
