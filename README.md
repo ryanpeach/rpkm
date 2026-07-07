@@ -2,9 +2,9 @@
 
 I have my own personal requirements for a PKM.
 
-## Fully [commonmark](https://commonmark.org/) with [yaml frontmatter](https://docs.github.com/en/contributing/writing-for-github-docs/using-yaml-frontmatter)
+## Fully [Github Flavored Markdown](https://github.github.com/gfm/) with [yaml frontmatter](https://docs.github.com/en/contributing/writing-for-github-docs/using-yaml-frontmatter)
 
-All these different markdowns really makes parsing (for scripting) and compatibility a pain. We are not going to go away from commonmark. We will add a feature to the yaml frontmatter if its missing.
+This is a common standard and it renders well in almost all major text editors and viewers, most importantly in github where you will commonly view markdown files whether publicly or privately. Yaml frontmatter extending this gives us a full database-like object for each markdown file.
 
 ## The [Collector's Fallacy](https://zettelkasten.de/posts/collectors-fallacy/)
 
@@ -55,7 +55,7 @@ Todo folders should contain an `Archive` folder and `Done` or `Wont Do` status n
 
 Should write memorizables into [mdanki](https://github.com/ashlinchak/mdanki) compatible formatting.
 
-Flashcards related to a markdown file `foobar.md` should be stored in `foobar.flashcards.md`. The `foobar.md` gets a frontmatter item `flashcard_link` and the flashcard file gets a frontmatter item `original_link`. Still, these files should always stay named the same.
+Flashcards related to a markdown file `foobar.md` should be stored in `foobar.flashcards.md`. The `foobar.md` gets a [footnote](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes) item linking to the flashcards. Still, these files should always stay named the same.
 
 # TODO Journaling
 
@@ -99,7 +99,7 @@ For all uploads:
 
 1. The raw file goes in `./assets` folder
 2. An `.md` file goes in `.` and has the same name as the raw file.
-3. The path of the asset goes in the frontmatter as `original_link` (not as a markdown link, markdown links are not supported in frontmatter)
+3. The path of the asset goes in the [footnotes](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes)
 4. The body of the `.md` file contains a header `# AI Generated` and then that becomes info about the original
 
 ## Images
@@ -117,3 +117,15 @@ For all uploads:
 <!-- If validation does not pass, and the git tree is not dirty, someone made a mistake, whether it was the user or AI. markdownmd uses gitpython to make a commit to the branch (with AI generated commit message). Then agentic ai fixes the validation. Then it makes a PR. Then it switches back to a branch it can work in (without validation errors). AI never makes changes without a PR. -->
 
 If the user is actively working in a file, the git repo will be dirty. The MCP will pause activity until the user commits changes. Pre commit will prevent the user from committing invalid changes.
+
+# AI Considerations
+
+It's really important bodies are kept small for progressive disclosure
+
+It's important to maintain links as best as possible. Maybe consider strict zettelkasten.
+
+## Why not compass / semantic linking?
+
+Semantics can be derived from the body of the text. Analytic methods never really helped much in classical AI to solve the language problem.
+
+It's also just too hard to maintain / keep consistent. It's too ontologically biased. Etc.
