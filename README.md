@@ -51,45 +51,50 @@ Then a new file is created per instance of completing the habit, called `YYYYMMD
 
 Todo folders should contain an `Archive` folder and `Done` or `Wont Do` status notes should be moved into there.
 
-# TODO Memorizing
+# Retrieval
 
-Should write memorizables into [mdanki](https://github.com/ashlinchak/mdanki) compatible formatting.
+Retrieval is the **most important part** of note taking. What you can't retrieve is useless.
 
-Flashcards related to a markdown file `foobar.md` should be stored in `foobar.flashcards.md`. The `foobar.md` gets a [footnote](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes) item linking to the flashcards. Still, these files should always stay named the same.
+- [ ] Full Text Search
+- [ ] Vector Search
+- [ ] Graph RAG
+
+# Memorizing
+
+Memorizing is the second most important part of note taking. Understanding and facts are best synthesized in your mind.
+
+- [ ] Store flashcards for `foobar.md` in `foobar.flashcards.tsv`
+- [ ] Add a [footnote](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes) in `foobar.md` linking to its flashcards file
+- [ ] Keep flashcard filenames stable (always match the source file name)
 
 # TODO Journaling
 
-Journaling can be in its own folder in commonmark.
+Journals are different from structured notes. They are more train of thought and less organized. We can seperate them during graphrag and let them be longer.
+
+- [ ] Create a dedicated journaling folder to keep structured notes seperate from train-of-thought notes
+- [ ] Journals can violate the shortness validation
 
 # TODO Hoarding
 
-Hoarding should be considered different from found knowledge.
+I define hoarding as distinct from compiled structured knowledge
 
 ## Hoarding Websites
 
-A folder of HTML should do nicely.
+- [ ] Store hoarded websites as HTML files in a dedicated folder with a pandoc converted md file same name with a footnote link both to the original and to the html
 
 ## Hoarding PDF's and their Annotations
 
-Use standard PDF features. Nothing fancy.
+- [ ] Use standard PDF annotation features (no custom tooling)
 
-# TODO Retrieval
+# Migration
 
-# TODO Migration
+Migration can be done using any scripting language due to the fact we are using github markdown + yaml frontmatter (very portable)
 
-Because we use commonmark and yaml frontmatter, migration of the data should be easy in any scripting language.
-
-## TODO Folder Schemas
-
-A folder can contain a `.schema` file to specify a schema for all the files within the folder.
-
-markdowndb can validate this schema for all files.
-
-AI + DuckDB can perform migrations after validation.
+- [ ] A claude code skill should be able to do this better than an mcp
 
 # UI
 
-No need for a custom UI. Because we use commonmark, use VSCode or something.
+No need for a custom UI. Because we use markdown, use VSCode or something.
 
 We also primarily want the user to be able to interact with everything via voice over an AI via an MCP. I'm a big fan of voice notes.
 
@@ -97,35 +102,72 @@ We also primarily want the user to be able to interact with everything via voice
 
 For all uploads:
 
-1. The raw file goes in `./assets` folder
-2. An `.md` file goes in `.` and has the same name as the raw file.
-3. The path of the asset goes in the [footnotes](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes)
-4. The body of the `.md` file contains a header `# AI Generated` and then that becomes info about the original
+- [ ] The raw file goes in `./assets` folder
+- [ ] An `.md` file goes in `.` and has the same name as the raw file.
+- [ ] The path of the asset goes in the [footnotes](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#footnotes)
+- [ ] The body of the `.md` file contains a header `# AI Generated` and then that becomes info about the original
 
 ## Images
 
-1. The header `# AI Generated`.`## Description` contains an AI description of the image.
-2. The header `# AI Generated`.`## OCR` contains any text OCR'd from the image.
+- [ ] An MCP tool allows uploading images
+    - [ ] The header `# AI Generated`.`## Description` contains an AI description of the image.
+    - [ ] The header `# AI Generated`.`## OCR` contains any text OCR'd from the image.
 
 ## Voice Notes
 
-1. The header `# AI Generated`.`## Summary` contains an AI summary of the voice note.
-2. The header `# AI Generated`.`## Transcript` contains a transcript of the voice note.
+- [ ] An MCP tool allows uploading voice notes
+    - [ ] The header `# AI Generated`.`## Summary` contains an AI summary of the voice note.
+    - [ ] The header `# AI Generated`.`## Transcript` contains a transcript of the voice note.
 
-# Validation Loop
+# Block Properties
 
-<!-- If validation does not pass, and the git tree is not dirty, someone made a mistake, whether it was the user or AI. markdownmd uses gitpython to make a commit to the branch (with AI generated commit message). Then agentic ai fixes the validation. Then it makes a PR. Then it switches back to a branch it can work in (without validation errors). AI never makes changes without a PR. -->
+The one modification we are going to make to github flavored markdown is the introduction of [block properties from logseq](https://discuss.logseq.com/t/lesson-5-how-to-power-your-workflows-using-properties-and-dynamic-variables/10173). This way we can add properties to todos and footnotes.
 
-If the user is actively working in a file, the git repo will be dirty. The MCP will pause activity until the user commits changes. Pre commit will prevent the user from committing invalid changes.
+- [ ] Capture block properties
 
-# AI Considerations
+## Justification of Change
+
+You can still parse the markdown with a standard markdown parser.
+
+You can capture properties with simple regex such as `[\w-]+::\s+[\w-]+`
+
+## Todos
+
+By adding block properties to todos we can add things like `deadline::` `planned::` etc.
+
+## Footnotes
+
+By adding block properties to footnotes we can functionally turn our database into a [labeled property graph](https://en.wikipedia.org/wiki/Property_graph) greatly increasing our ability to perform graphrag.
+
+- [ ] Turn footnotes into labeled property graph
+
+# Validation
+
+- [ ] If validation fails on a clean tree, auto-commit with AI-generated message
+- [ ] Agentic AI fixes validation errors
+- [ ] AI opens a PR for validation fixes (AI never commits directly without a PR)
+- [ ] AI switches back to a clean working branch after PR
+- [ ] MCP pauses activity when repo is dirty (user is actively editing)
+- [x] Pre-commit hook blocks invalid commits
+
+## Filenames
+
+- [ ] Filenames stay lowercase with spaces.
+
+We use spaces because the filename is also the default alias and some aliases have spaces. We use lowercase because its easy.
+
+## AI Considerations
 
 It's really important bodies are kept small for progressive disclosure
 
-It's important to maintain links as best as possible. Maybe consider strict zettelkasten.
+- [ ] Validate that documents are short
 
-## Why not compass / semantic linking?
+It's important to maintain links as best as possible.
 
-Semantics can be derived from the body of the text. Analytic methods never really helped much in classical AI to solve the language problem.
+- [x] Use lychee to make sure links are valid
+- [x] mdlinker to find new links
+- [x] spell checker to make sure words are discoverable by search
 
-It's also just too hard to maintain / keep consistent. It's too ontologically biased. Etc.
+Maybe consider strict zettelkasten to stylistically accomodate more linking and shorter notes?
+
+- [ ] parent/child/opposes/supports relationship:: block properties

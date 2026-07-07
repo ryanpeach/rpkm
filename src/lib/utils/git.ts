@@ -1,5 +1,6 @@
-import { simpleGit } from "simple-git";
+import { CommitResult, Options, Response, simpleGit } from "simple-git";
 import { exists } from "@std/fs/exists";
+
 
 export async function findProjectRoot(cwd = Deno.cwd()): Promise<string> {
   return await simpleGit(cwd).revparse(["--show-toplevel"]).then((s) => s.trim());
@@ -21,20 +22,22 @@ export async function ensureGitRepo(projectPath: string): Promise<void> {
 }
 
 /**
- * If gitignore does not exist, create it.
- * If gitignore does not ignore .markdowndb and *.db, append them
+ * If gitignore does not exist, create it with the ignore string.
+ * If gitignore does not ignore the ignore string, append it
  * @param projectPath The project projectPath
+ * @param ignore The string to check for or add to the gitignore
  */
-export async function ensureMarkdowndbIgnored(projectPath: string): Promise<void> {
+export async function ensureGitIgnore(projectPath: string, ignore: string): Promise<void> {
     const gitignore = `${projectPath}/.gitignore`;
-    if (!exists(gitignore)) {Deno.writeTextFile(gitignore, ".markdowndb\n*.db")}
-    else {
+    if (!await exists(gitignore)) {
+        await Deno.writeTextFile(gitignore, ignore);
+        await simpleGit(projectPath).add(".gitignore").commit(`Auto: Created .gitignore with ${ignore}`, { arguments: ["--no-verify"] });
+    } else {
         const content = await Deno.readTextFile(gitignore).catch(() => "");
-        if (!content.split("\n").includes(".markdowndb")) {
-            await Deno.writeTextFile(gitignore, "\n.markdowndb", {append: true });
-        }
-        if (!content.split("\n").includes("*.db")) {
-            await Deno.writeTextFile(gitignore, "\n*.db", {append: true });
+        if (!content.split("\n").includes(ignore)) {
+            await Deno.writeTextFile(gitignore, `\n${ignore}`, {append: true });
+            await simpleGit(projectPath).add(".gitignore").commit(`Auto: Added ${ignore} to .gitignore`)
         }
     }
 }
+
