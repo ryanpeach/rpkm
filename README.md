@@ -1,4 +1,4 @@
-# Personal PKM
+# Ryan's Personal Knowledge Management
 
 I have my own personal requirements for a PKM.
 
